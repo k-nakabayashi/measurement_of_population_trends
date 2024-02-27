@@ -2,6 +2,7 @@ import { useState } from 'react'
 import reactLogo from './assets/react.svg'
 import viteLogo from '/vite.svg'
 import './App.css'
+import { RESAS_API_KEY } from "./env"
 
 function App() {
   const [count, setCount] = useState(0)
@@ -21,6 +22,7 @@ function App() {
         <button onClick={() => setCount((count) => count + 1)}>
           count is {count}
         </button>
+        <p>RESAS_API_KEY = {RESAS_API_KEY}</p>
         <p>
           Edit <code>src/App.tsx</code> and save to test HMR
         </p>
