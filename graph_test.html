@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <script src="https://code.highcharts.com/highcharts.js"></script>
+    <style>
+        .container {
+            width: 80%;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .pt-3 {
+            padding-top: 24px;
+        }
+        .c-Pref {
+            display: flex;
+        }
+    </style>
+</head>
+<body>
+    <div class="container pt-3">
+        <p><a href="https://opendata.resas-portal.go.jp/" target="_blank">地域経済分析システム(RESAS)</a>のAPIキーを入力してください。</p>
+        <form action="">
+            <input type="text" name="resas-api-key" placeholder="resas-api-key" id="js-Resas-Api-Key" value="" autocomplete="on">
+            <button type="submit" id="js-Preparation">事前準備する</button>
+        </form>
+        <form action="">
+            <div class="c-Pref" id="js-Pref-Code">
+            </div>
+            <button type="submit" id="js-Population">人口を取得する</button>
+        </form>
+        <div id="chart"></div>
+    </div>
+
+    <script>
+
+        var api_key = ""
+        var pref_info_list = {}
+
+
+        /*
+            関数を定義する
+        */
+
+        const ApiCtrl = function () {
+
+            const request = async function (config) {
+                try {
+                    config["headers"] = {
+                        // "X-API-KEY": "",
+                        "X-API-KEY": api_key,
+                    }
+                    return $.ajax(config);
+                } catch (error) {
+                    alert("通信失敗")
+                    throw new Error(error);
+                }
+            }
+
+            const get_pref_info_list = async function () {
+                config = {
+                    url: "https://opendata.resas-portal.go.jp/api/v1/prefectures",
+                    type: "get",
+                    dataType:'json',
+                }
+
+                return request(config)
+            }
+
+            const get_population_list = async function (prefCode) {
+                config = {
+                    url: `https://opendata.resas-portal.go.jp/api/v1/population/sum/estimate?prefCode=${prefCode}`,
+                    type: "get",
+                    dataType:'json',
+                }
+                return request(config)
+            }
+            
+            return {
+                get_pref_info_list: get_pref_info_list,
+                get_population_list: get_population_list,
+            }
+        }
+
+        const draw_cart = function (xAxis_year, yAxis_series) {
+
+            Highcharts.chart('chart', {
+
+                chart: {
+                    type: 'spline'
+                },
+                title: {
+                    text: '人口の推移'
+                },
+                subtitle: {
+                    text: '2021年版',
+                },
+
+                // ==============
+                // X軸
+                // ==============
+
+                xAxis: {
+                    title: {
+                        text: '年'
+                    },
+                    categories: xAxis_year
+                },
+
+                // ==============
+                // Y軸
+                // ==============
+
+                yAxis: {
+                    title: {
+                        text: '人口数'
+                    }
+                },
+                tooltip: {
+                    valueSuffix: '人'
+                },
+                series: yAxis_series
+            });
+        }
+
+        const api_ctrl = ApiCtrl()
+        /*
+            ボタンを設定する
+        */
+
+        $("#js-Preparation").on("click", async function(e){
+            e.preventDefault()
+
+            if (Object.keys(pref_info_list).length > 0) {
+                return true;
+            }
+
+            api_key = $("#js-Resas-Api-Key").val()
+
+            const res = await api_ctrl.get_pref_info_list()
+
+            pref_info_list = res.result
+            $("#js-Pref-Code").empty()
+            for (var i = 0; i < Object.keys(pref_info_list).length; ++i) {
+                const prf_info = pref_info_list[i]
+                $("#js-Pref-Code").append(`<label for="pref_code_${prf_info.prefCode}"><input type="checkbox" name="pref_code" value="${prf_info.prefCode}" id="pref_code_${prf_info.prefCode}">${prf_info.prefName}</label>`)
+            }
+            
+        })
+
+        $("#js-Population").on("click", async function(e){
+
+            e.preventDefault()
+            var checkedValues = $('input[name="pref_code"]:checked').map(function() {
+                return this.value;
+            }).get();
+
+            var config = []
+            var target_pref_code_for_chart = []
+            for (var i=0; i < Object.keys(checkedValues).length; ++i) {
+                // =============
+                // 事前処理をする
+                // =============
+
+                const pref_code = checkedValues[i]
+                target_pref_code_for_chart.push(pref_code)
+                
+                if (pref_info_list[pref_code-1].hasOwnProperty("xAxis_year")) {
+                    continue;
+                }
+                
+                // ============================
+                // 都道府県別に人口を取得する
+                // ============================
+
+                const res = await api_ctrl.get_population_list(pref_code)
+                const total_population_list_by_year = res.result.data[0].data
+
+                // 以下、人口データをセットする
+                var xAxis_year = []
+                var yAxis_total_population = []
+
+                for (var t = 0; t < Object.keys(total_population_list_by_year).length; ++t) {
+                    var total_population = total_population_list_by_year[t]
+                    xAxis_year.push(total_population.year)
+                    yAxis_total_population.push(total_population.value)
+                }
+         
+                pref_info_list[pref_code-1].xAxis_year = xAxis_year
+                pref_info_list[pref_code-1].yAxis_total_population = yAxis_total_population
+            }
+
+            // =====================
+            // グラフを描画する
+            // =====================
+
+            var xAxis_year = xAxis_year
+            var yAxis_series = []
+            for (var i=0; i < Object.keys(target_pref_code_for_chart).length; ++i) {
+                const index = target_pref_code_for_chart[i] - 1
+                const pref_info = pref_info_list[index]
+                xAxis_year = pref_info.xAxis_year
+                yAxis_series.push({
+                    // name: '人口推移',
+                    name: pref_info.prefName,
+                    data: pref_info.yAxis_total_population
+                })
+            }
+            
+            draw_cart(xAxis_year, yAxis_series)
+        })
+    
+    </script>
+
+</body>
+</html>
